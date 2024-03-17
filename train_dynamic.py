@@ -61,13 +61,14 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     log_writer = tensorboard.SummaryWriter()
 
     model = DyntrainModel(model_args.model_name_or_path, training_args.cache_dir, model_args.max_instant_params * 1e6, True, True)
-    model = model.toDevices(primary_device, [secondary_device])
+    model.toDevices([primary_device, secondary_device])
+    model.balanceActive()
 
     paramter_count = sum(p.numel() for p in model.model.parameters())
     active_paramter_count = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
     print(f"Training model with {paramter_count/1e6}m parameters and {active_paramter_count/1e6}m instantanous active paramters")
 
-    tokenizer = get_tokenizer(model, training_args.cache_dir, model_args)
+    tokenizer = get_tokenizer(model.model, training_args.cache_dir, model_args)
 
     if data_args.dataset.endswith("json"):
         print("Loading dataset in s2s mode")
@@ -89,7 +90,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
         batch_size=training_args.per_device_train_batch_size
     ) if dataset['eval_dataset'] is not None else None
 
-    dynamic_param_ratio = (model.staticParamterCount() + model.dynamicParameterCount()) / model.dynamicParameterCount()
+    dynamic_param_ratio = (model.staticParameterCount() + model.dynamicParameterCount()) / model.dynamicParameterCount()
     steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
     total_steps = steps_per_epoch * training_args.epochs
 
@@ -111,14 +112,14 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     if training_args.do_train:
         progress_bar = tqdm(range(total_steps))
         global_step = 0
-        model.train()
+        model.model.train()
         for epoch in range(0, training_args.epochs):
             print("*** Train ***")
             print(f'Vram used for model before training starts: {torch.cuda.memory_allocated()/(1024.0*1024.0)}')
             for step, batch in enumerate(train_dataloader):
                 for key in batch:
                     batch[key] = batch[key].to("cuda:0")
-                outputs = model(**batch)
+                outputs = model.model(**batch)
                 loss = outputs.loss / training_args.gradient_accumulation_steps
                 log_writer.add_scalar("Loss/train", loss, global_step)
                 loss.backward()
@@ -127,7 +128,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
                     optimizer.step()
                     lr_scheduler.step()
 
-                    model.zero_grad()
+                    model.model.zero_grad()
 
                     if global_step % 10 == 0:
                         print(loss)
@@ -136,6 +137,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
                         lr_scheduler.optimizer = None
                         del optimizer
                         model.reshuffleActive()
+                        model.balanceActive()
                         log_writer.add_scalar("Parameters/train", model.activeParameterCount(), global_step)
                         optimizer = get_optimizer(model.dynamicParameters(),
                                                   model.staticParameters(),
@@ -150,7 +152,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
                     progress_bar.update()
 
                     if global_step % training_args.save_steps == 0:
-                        save_model(model, global_step, training_args.output_dir, training_args.max_checkpoints)
+                        save_model(model.model, global_step, training_args.output_dir, training_args.max_checkpoints)
                 if training_args.flush_allocator:
                     torch.cuda.empty_cache()
 
@@ -158,7 +160,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     if training_args.do_eval:
         print("*** Evaluate ***")
 
-    save_model(model, global_step, training_args.output_dir)
+    save_model(model.model, global_step, training_args.output_dir)
 
     return
 
