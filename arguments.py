@@ -41,10 +41,6 @@ class ModelArguments:
         default=False,
         metadata={"help": "Enable unpickling of arbitrary code in AutoModelForCausalLM#from_pretrained."}
     )
-    max_instant_params: int = field(
-        default=0,
-        metadata={"help": "Maximum amount of paramters to optimize per step in millions"}
-    )
     noresize: Optional[bool] = field(
         default=False,
         metadata={"help": "Never resize tokenizer embeddings"}
@@ -93,3 +89,5 @@ class TrainingArguments():
     secondary_device: str = field(default="cuda:0", metadata={"help": 'The secondary device to use'})
     train_non_linear_layers: str = field(default=False, metadata={"help": 'train non linear layers'})
     flush_allocator: bool = field(default=False, metadata={"help": 'flush torches allocator on eatch iteration'})
+    max_instant_params: int = field(default=0, metadata={"help": "Maximum amount of paramters to optimize per step in millions"})
+    churn_percent: int = field(default=0, metadata={"help": "The percentage of active parameters to replace when changeing active parameters"})
