@@ -45,6 +45,10 @@ class ModelArguments:
         default=False,
         metadata={"help": "Never resize tokenizer embeddings"}
     )
+    quantize: Optional[bool] = field (
+        default=False,
+        metadata={"help": "Quantize parameters not currently be actively trained"}
+        )
 
 
 @dataclass
@@ -85,9 +89,8 @@ class TrainingArguments():
     save_steps: int = field(default=250, metadata={"help": 'How often to save a model'})
     max_checkpoints: int = field(default=0, metadata={"help": 'the maximum amount of checkpoints to save'})
     save_total_limit: int = field(default=40, metadata={"help": 'How many checkpoints to save before the oldest is overwritten'})
-    primary_device: str = field(default="cuda:0", metadata={"help": 'The primary device to use'})
-    secondary_device: str = field(default="cuda:0", metadata={"help": 'The secondary device to use'})
-    train_non_linear_layers: str = field(default=False, metadata={"help": 'train non linear layers'})
+    train_non_linear_layers: Optional[bool] = field(default=False, metadata={"help": 'train non linear layers'})
     flush_allocator: bool = field(default=False, metadata={"help": 'flush torches allocator on eatch iteration'})
     max_instant_params: int = field(default=0, metadata={"help": "Maximum amount of paramters to optimize per step in millions"})
-    churn_percent: int = field(default=0, metadata={"help": "The percentage of active parameters to replace when changeing active parameters"})
+    churn_percent: int = field(default=100, metadata={"help": "The percentage of active parameters to replace when changeing active parameters"})
+    eval_steps: int = field(default=-1, metadata={"help": "Number of optimization steps after wich to compute the evaluation loss"})

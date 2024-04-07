@@ -39,10 +39,11 @@ def get_optimizer(dyamic_parameters: list[torch.nn.parameter], static_parameters
     parameters = list()
     parameters.extend({'params': p} for p in dyamic_parameters if p.requires_grad)
     param_ids = set([id(p['params']) for p in parameters])
-    for param in static_parameters:
-        if param.requires_grad and id(param) not in param_ids:
-            parameters.append({'params': param, 'lr': static_lr})
-            param_ids.add(id(param))
+    if static_parameters is not None:
+        for param in static_parameters:
+            if param.requires_grad and id(param) not in param_ids:
+                parameters.append({'params': param, 'lr': static_lr})
+                param_ids.add(id(param))
 
     if not adam8bit:
         optimizer = torch.optim.AdamW(parameters, weight_decay=weight_decay, lr=lr, eps=training_args.adam_epsilon)
@@ -55,19 +56,34 @@ def get_optimizer(dyamic_parameters: list[torch.nn.parameter], static_parameters
     return optimizer
 
 
+def evaluate(model: DyntrainModel, dataloader: torch.utils.data.DataLoader) -> float:
+    print("*** Eval ***")
+    loss = torch.zeros((1), device="cuda:0")
+    model.model.eval()
+    for batch in dataloader:
+        for key in batch:
+            batch[key] = batch[key].to("cuda:0")
+        outputs = model.model(**batch)
+        loss += outputs.loss
+    loss = loss / len(dataloader)
+    print(f"Eval Loss {loss.item()}")
+
+
 def train(model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments):
-    primary_device = torch.device(training_args.primary_device)
-    secondary_device = torch.device(training_args.secondary_device)
     log_writer = tensorboard.SummaryWriter()
 
     model = DyntrainModel(model_args.model_name_or_path, training_args.cache_dir, target_active_params=training_args.max_instant_params * 1e6,
-                          reshuffle_fraction=training_args.churn_percent / 100.0, gradient_checkpointing=True, trust_remote_code=True)
-    model.toDevices([primary_device, secondary_device])
+                          reshuffle_fraction=training_args.churn_percent / 100.0, gradient_checkpointing=True, trust_remote_code=True,
+                          quantize=model_args.quantize)
+    devices = list(torch.device(i) for i in range(0, torch.cuda.device_count()))
+    model.toDevices(devices)
+    model.reshuffleActive()
     model.balanceActive()
 
     paramter_count = sum(p.numel() for p in model.model.parameters())
     active_paramter_count = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
-    print(f"Training model with {paramter_count/1e6}m parameters and {active_paramter_count/1e6}m instantanous active paramters")
+    static_parameter_count = model.staticParameterCount() if training_args.train_non_linear_layers else 0
+    print(f"Training model with {paramter_count/1e6}m parameters and {active_paramter_count/1e6}m instantanous active paramters of which {static_parameter_count} are static")
 
     tokenizer = get_tokenizer(model.model, training_args.cache_dir, model_args)
 
@@ -96,7 +112,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     total_steps = steps_per_epoch * training_args.epochs
 
     optimizer = get_optimizer(model.dynamicParameters(),
-                              model.staticParameters(),
+                              model.staticParameters() if training_args.train_non_linear_layers else None,
                               training_args.learning_rate,
                               training_args.learning_rate / dynamic_param_ratio,
                               training_args.weight_decay,
@@ -115,6 +131,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
         global_step = 0
         model.model.train()
         for epoch in range(0, training_args.epochs):
+            model.model.train()
             print("*** Train ***")
             print(f'Vram used for model before training starts: {torch.cuda.memory_allocated()/(1024.0*1024.0)}')
             for step, batch in enumerate(train_dataloader):
@@ -131,17 +148,17 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
 
                     model.model.zero_grad()
 
-                    if global_step % 10 == 0:
-                        print(loss)
+                    if global_step % 5 == 0:
+                        print(f"Train Loss {loss.item()}")
 
-                    if global_step % 10 == 0 and training_args.max_instant_params != 0:
+                    if global_step % 50 == 0 and training_args.max_instant_params != 0:
                         lr_scheduler.optimizer = None
                         del optimizer
                         model.reshuffleActive()
                         model.balanceActive()
                         log_writer.add_scalar("Parameters/train", model.activeParameterCount(), global_step)
                         optimizer = get_optimizer(model.dynamicParameters(),
-                                                  model.staticParameters(),
+                                                  model.staticParameters() if training_args.train_non_linear_layers else None,
                                                   training_args.learning_rate,
                                                   training_args.learning_rate / dynamic_param_ratio,
                                                   training_args.weight_decay,
@@ -152,14 +169,19 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
                     global_step += 1
                     progress_bar.update()
 
+                if global_step > 0:
                     if global_step % training_args.save_steps == 0:
                         save_model(model.model, global_step, training_args.output_dir, training_args.max_checkpoints)
+                    if training_args.eval_steps > 0 and global_step % training_args.save_steps == 0:
+                        evaluate(model, eval_dataloader)
                 if training_args.flush_allocator:
                     torch.cuda.empty_cache()
+            if training_args.do_eval and training_args.eval_steps == -1:
+                evaluate(model, eval_dataloader)
 
     # Evaluation
     if training_args.do_eval:
-        print("*** Evaluate ***")
+        evaluate(model, eval_dataloader)
 
     save_model(model.model, global_step, training_args.output_dir)
 
