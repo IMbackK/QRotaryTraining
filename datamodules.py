@@ -27,7 +27,44 @@ def group_texts(examples, block_size: int):
 
 
 @dataclass
-class DataCollatorForCausalLM(object):
+class DataCollatorForCausalLMText(object):
+    tokenizer: transformers.PreTrainedTokenizer
+    max_len: int
+
+    def __call__(self, instances: typing.Sequence[typing.Dict]) -> typing.Dict[str, torch.Tensor]:
+        # Extract elements
+        examples = [f"{self.tokenizer.bos_token}{example['text']}{self.tokenizer.eos_token}" for example in instances]
+        # Tokenize
+        tokenized_examples = self.tokenizer(
+            examples,
+            max_length=self.max_len,
+            truncation=True,
+            add_special_tokens=False,
+        )
+        # Build the input and labels for causal LM
+        input_ids = []
+        for tokenized_example in tokenized_examples['input_ids']:
+            input_ids.append(torch.tensor(tokenized_example))
+        # Apply padding
+        padding_value = None
+        if self.tokenizer.pad_token_id is not None:
+            padding_value = self.tokenizer.pad_token_id
+        elif self.tokenizer.eos_token_id is not None:
+            padding_value = self.tokenizer.eos_token_id
+        else:
+            raise RuntimeError("Model dose not have a pad or eos token")
+        input_ids = pad_sequence(input_ids, batch_first=True, padding_value=padding_value)
+
+        data_dict = {
+            'input_ids': input_ids,
+            'attention_mask': input_ids.ne(padding_value),
+            'labels': input_ids
+        }
+        return data_dict
+
+
+@dataclass
+class DataCollatorForCausalLMs2s(object):
     tokenizer: transformers.PreTrainedTokenizer
     source_max_len: int
     target_max_len: int
@@ -102,7 +139,7 @@ def create_data_module_s2s(tokenizer: transformers.PreTrainedTokenizer, data_arg
                 test_size=data_args.eval_dataset_size, shuffle=True, seed=42
             )
             eval_dataset = dataset['test']
-            eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
+        eval_dataset = eval_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
 
     if 'train' in dataset:
         train_dataset = dataset['train']
@@ -111,12 +148,46 @@ def create_data_module_s2s(tokenizer: transformers.PreTrainedTokenizer, data_arg
 
     train_dataset = train_dataset.map(lambda x: {'length': len(x['input']) + len(x['output'])})
 
-    data_collator = DataCollatorForCausalLM(
+    data_collator = DataCollatorForCausalLMs2s(
         tokenizer=tokenizer,
         source_max_len=data_args.source_max_len,
         target_max_len=data_args.target_max_len,
         train_on_source=data_args.train_on_source,
         predict_with_generate=False  # args.predict_with_generate,
+    )
+
+    return dict(
+        train_dataset=train_dataset if do_train else None,
+        eval_dataset=eval_dataset if do_eval else None,
+        predict_dataset=eval_dataset if do_predict else None,
+        data_collator=data_collator
+    )
+
+
+def create_data_module_hub(tokenizer: transformers.PreTrainedTokenizer, data_args: DataArguments, do_train, do_eval, do_predict) -> typing.Dict:
+    try:
+        dataset = datasets.load_dataset(data_args.dataset)
+    except FileNotFoundError as ex:
+        raise ValueError(f"Error loading dataset from {data_args.dataset}, {ex}")
+
+    if do_eval or do_predict:
+        if 'eval' in dataset:
+            eval_dataset = dataset['eval']
+        else:
+            print('Splitting train dataset in train and validation according to `eval_dataset_size`')
+            dataset = dataset.train_test_split(
+                test_size=data_args.eval_dataset_size, shuffle=True, seed=42
+            )
+            eval_dataset = dataset['test']
+
+    if 'train' in dataset:
+        train_dataset = dataset['train']
+    else:
+        train_dataset = dataset
+
+    data_collator = DataCollatorForCausalLMText(
+        tokenizer=tokenizer,
+        max_len=data_args.source_max_len,
     )
 
     return dict(
@@ -147,7 +218,8 @@ def create_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args: D
             eval_dataset = dataset['eval']
         else:
             print('Splitting train dataset in train and validation according to `eval_dataset_size`')
-            dataset = dataset.train_test_split(
+            breakpoint()
+            dataset = dataset['train'].train_test_split(
                 test_size=data_args.eval_dataset_size, shuffle=True, seed=42
             )
             eval_dataset = dataset['test']

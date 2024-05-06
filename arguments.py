@@ -19,6 +19,10 @@ class DataArguments:
         default=256,
         metadata={"help": "Maximum target sequence length. Sequences will be right padded (and possibly truncated)."},
     )
+    data_from_hub: Optional[bool] = field(
+        default=False,
+        metadata={"help": "If this is set the dataset is assumed to be a name of a hf-hub dataset"}
+    )
     dataset: str = field(
         default=None,
         metadata={"help": "A json file (s2s) or text file with the dataset to train on"}
@@ -60,10 +64,6 @@ class TrainingArguments():
         default=False,
         metadata={"help": "Use 8-bit adam."}
     )
-    report_to: str = field(
-        default='none',
-        metadata={"help": "To use wandb or something else for reporting."}
-    )
     resume: bool = field(default=False, metadata={"help": 'Resume from previous checkpoint'})
     ddp_find_unused_parameters: bool = field(default=True, metadata={"help": 'set if trainer should try to find unused parameters'})
     output_dir: str = field(default='./output', metadata={"help": 'The output dir for logs and checkpoints'})
@@ -85,7 +85,6 @@ class TrainingArguments():
     logging_steps: int = field(default=10, metadata={"help": 'The frequency of update steps after which to log the loss'})
     group_by_length: bool = field(default=False,
                                   metadata={"help": 'Group sequences into batches with same length. Saves memory and speeds up training considerably.'})
-    storage_fp16: bool = field(default=False, metadata={"help": 'Store untrained layers in 16bit'})
     save_steps: int = field(default=250, metadata={"help": 'How often to save a model'})
     max_checkpoints: int = field(default=0, metadata={"help": 'the maximum amount of checkpoints to save'})
     save_total_limit: int = field(default=40, metadata={"help": 'How many checkpoints to save before the oldest is overwritten'})
@@ -94,3 +93,5 @@ class TrainingArguments():
     max_instant_params: int = field(default=0, metadata={"help": "Maximum amount of paramters to optimize per step in millions"})
     churn_percent: int = field(default=100, metadata={"help": "The percentage of active parameters to replace when changeing active parameters"})
     eval_steps: int = field(default=-1, metadata={"help": "Number of optimization steps after wich to compute the evaluation loss"})
+    eval_prompt: str = field(default=None, metadata={"help": "A prompt to used during eval to check if the model is learning"})
+    reshufle_steps: int = field(default=50, metadata={"help": "Number of steps to take before changing the active parameters"})
