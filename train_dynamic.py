@@ -78,7 +78,7 @@ def evaluate(model: DyntrainModel, tokenizer,
         attention_mask = torch.ones(input_ids.shape, device=model.devices[0], requires_grad=False)
         outputs = model.generate(input_ids, attention_mask=attention_mask, do_sample=True, temperature=1, max_new_tokens=100)
         response_decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-        print(f"Eval generation: response_decoded")
+        print(f"Eval generation: {response_decoded}")
         log_writer.add_text("Text/Eval", response_decoded, globalstep)
 
 
