@@ -218,7 +218,6 @@ def create_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args: D
             eval_dataset = dataset['eval']
         else:
             print('Splitting train dataset in train and validation according to `eval_dataset_size`')
-            breakpoint()
             dataset = dataset['train'].train_test_split(
                 test_size=data_args.eval_dataset_size, shuffle=True, seed=42
             )

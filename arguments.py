@@ -92,5 +92,5 @@ class TrainingArguments():
     max_instant_params: int = field(default=0, metadata={"help": "Maximum amount of paramters to optimize per step in millions"})
     churn_percent: int = field(default=100, metadata={"help": "The percentage of active parameters to replace when changeing active parameters"})
     eval_steps: int = field(default=-1, metadata={"help": "Number of optimization steps after wich to compute the evaluation loss"})
-    eval_prompt: str = field(default=None, metadata={"help": "A prompt to used during eval to check if the model is learning"})
+    eval_prompt: str | None = field(default=None, metadata={"help": "A prompt to used during eval to check if the model is learning"})
     reshufle_steps: int = field(default=50, metadata={"help": "Number of steps to take before changing the active parameters"})
