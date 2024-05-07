@@ -4,6 +4,9 @@ from typing import Optional
 
 @dataclass
 class DataArguments:
+    dataset: str = field(
+        metadata={"help": "A json file (s2s) or text file with the dataset to train on"}
+    )
     eval_dataset_size: int = field(
         default=512, metadata={"help": "Size of validation dataset."}
     )
@@ -23,10 +26,6 @@ class DataArguments:
         default=False,
         metadata={"help": "If this is set the dataset is assumed to be a name of a hf-hub dataset"}
     )
-    dataset: str = field(
-        default=None,
-        metadata={"help": "A json file (s2s) or text file with the dataset to train on"}
-    )
     block_size: int = field(
         default=512,
         metadata={"help": "size of the blocks the text is split into for training"},
@@ -35,7 +34,7 @@ class DataArguments:
 
 @dataclass
 class ModelArguments:
-    model_name_or_path: Optional[str] = field(
+    model_name_or_path: str = field(
         default="EleutherAI/pythia-12b"
     )
     tokenizer: Optional[str] = field(
@@ -49,10 +48,10 @@ class ModelArguments:
         default=False,
         metadata={"help": "Never resize tokenizer embeddings"}
     )
-    quantize: Optional[bool] = field (
+    quantize: bool = field(
         default=False,
         metadata={"help": "Quantize parameters not currently be actively trained"}
-        )
+    )
 
 
 @dataclass

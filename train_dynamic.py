@@ -22,22 +22,22 @@ def save_model(model, global_step: int, output_dir: str, max_checkpoints: int = 
     model.save_pretrained(output_dir)
 
     if max_checkpoints > 0:
-        files = [f for f in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, f)) and f.starts_with("step_")]
+        files = [f for f in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, f)) and f.startswith("step_")]
 
         def extract_step(filename):
             tokens = filename.split('_')
             return int(tokens[1])
 
         if len(files) > max_checkpoints:
-            min_step = min(map(extract_step, extract_step))
+            min_step = min(map(extract_step, files))
             delete_checkpoit_dir = os.path.join(output_dir, f"step_{min_step}")
             print(f"there are more than {max_checkpoints} checkpints saved, deleting {delete_checkpoit_dir}")
             shutil.rmtree(delete_checkpoit_dir)
 
 
-def get_optimizer(dyamic_parameters: list[torch.nn.parameter], static_parameters: list[torch.nn.parameter], lr: float, static_lr: float,
+def get_optimizer(dyamic_parameters: list[torch.nn.Parameter], static_parameters: list[torch.nn.Parameter] | None, lr: float, static_lr: float,
                   weight_decay: float, eps: float, adam8bit: bool):
-    parameters = list()
+    parameters = list[dict]()
     parameters.extend({'params': p} for p in dyamic_parameters if p.requires_grad)
     param_ids = set([id(p['params']) for p in parameters])
     if static_parameters is not None:
@@ -71,6 +71,7 @@ def evaluate(model: DyntrainModel, tokenizer,
     loss = loss / len(dataloader)
     log_writer.add_scalar("Loss/Eval", loss, globalstep)
     print(f"Eval Loss {loss.item()}")
+    return loss.item()
 
     if eval_prompt is not None:
         input_ids = tokenizer(eval_prompt, return_tensors="pt").input_ids.to(model.devices[0])
@@ -84,7 +85,7 @@ def evaluate(model: DyntrainModel, tokenizer,
 def train(model_args: ModelArguments, data_args: DataArguments, training_args: TrainingArguments):
     log_writer = tensorboard.SummaryWriter()
 
-    model = DyntrainModel(model_args.model_name_or_path, training_args.cache_dir, target_active_params=training_args.max_instant_params * 1e6,
+    model = DyntrainModel(model_args.model_name_or_path, training_args.cache_dir, target_active_params=int(training_args.max_instant_params * 1e6),
                           reshuffle_fraction=training_args.churn_percent / 100.0, gradient_checkpointing=True, trust_remote_code=True,
                           quantize=model_args.quantize)
     devices = list(torch.device(i) for i in range(0, torch.cuda.device_count()))
@@ -95,7 +96,8 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     paramter_count = sum(p.numel() for p in model.model.parameters())
     active_paramter_count = sum(p.numel() for p in model.model.parameters() if p.requires_grad)
     static_parameter_count = model.staticParameterCount() if training_args.train_non_linear_layers else 0
-    print(f"Training model with {paramter_count/1e6}m parameters and {active_paramter_count/1e6}m instantanous active paramters of which {static_parameter_count} are static")
+    print(f"Training model with {paramter_count / 1e6}m parameters and {active_paramter_count / 1e6}m"
+          f"instantanous active paramters of which {static_parameter_count} are static")
 
     tokenizer = get_tokenizer(model.model, training_args.cache_dir, model_args)
 
@@ -122,7 +124,7 @@ def train(model_args: ModelArguments, data_args: DataArguments, training_args: T
     ) if dataset['eval_dataset'] is not None else None
 
     dynamic_param_ratio = (model.staticParameterCount() + model.dynamicParameterCount()) / model.dynamicParameterCount()
-    steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps)
+    steps_per_epoch = math.ceil(len(train_dataloader) / training_args.gradient_accumulation_steps) if train_dataloader is not None else 1
     total_steps = steps_per_epoch * training_args.epochs
 
     optimizer = get_optimizer(model.dynamicParameters(),
