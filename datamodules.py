@@ -4,6 +4,7 @@ import typing
 import datasets
 import itertools
 import transformers
+import os
 from dataclasses import dataclass
 from torch.nn.utils.rnn import pad_sequence
 
@@ -237,7 +238,7 @@ def create_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args: D
     train_dataset_tokenized = train_dataset_tokenized.map(
         lambda example: group_texts(example, data_args.block_size),
         batched=True,
-        num_proc=32,
+        num_proc=max(1, min(os.cpu_count(), int(len(train_dataset_tokenized['input_ids']) / (data_args.block_size * 10)))),
         load_from_cache_file=True,
         desc=f"Grouping texts in chunks of {data_args.block_size}")
 
@@ -251,9 +252,14 @@ def create_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args: D
         eval_dataset_tokenized = eval_dataset_tokenized.map(
             lambda example: group_texts(example, data_args.block_size),
             batched=True,
-            num_proc=32,
+            num_proc=max(1, min(os.cpu_count(), int(len(eval_dataset_tokenized['input_ids']) / (data_args.block_size * 10)))),
             load_from_cache_file=True,
             desc=f"Grouping texts in chunks of {data_args.block_size}")
+
+    for ids in train_dataset_tokenized['input_ids']:
+        assert len(ids) == data_args.block_size
+    for ids in eval_dataset_tokenized['input_ids']:
+        assert len(ids) == data_args.block_size
 
     return dict(
         train_dataset=train_dataset_tokenized if do_train else None,
