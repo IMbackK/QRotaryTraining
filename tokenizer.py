@@ -30,13 +30,13 @@ def smart_tokenizer_and_embedding_resize(
 
 
 def get_tokenizer(model, cache_dir, model_args: ModelArguments):
-    print(f'Tokenizer: {model_args.tokenizer if model_args.tokenizer is not None else model_args.model_name_or_path}')
+    tokenizer_path = model_args.tokenizer if model_args.tokenizer is not None else model_args.model_name_or_path
+    print(f'Tokenizer: {tokenizer_path}')
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        model_args.tokenizer if model_args.tokenizer is not None else model_args.model_name_or_path,
+        tokenizer_path,
         cache_dir=cache_dir,
         padding_side="right",
         use_fast=False,
-        eos_token="[EOS]",
         tokenizer_type='llama' if 'llama' in model_args.model_name_or_path else None,
         trust_remote_code=model_args.trust_remote_code
     )

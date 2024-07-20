@@ -108,7 +108,7 @@ class DynamicConvertingLinear(Linear):
 
 class DynamicQantizedLinear(Linear):
     def __init__(self, in_features: int, out_features: int, bias: bool, active_device: torch.device, cold_device: torch.device,
-                 output_dtype=None, compute_dtype=None, output_device=None):
+                 output_dtype=None, compute_dtype=None, output_device=None, cold_dtype=torch.float32):
         super().__init__(in_features, out_features, bias, cold_device, torch.float32)
         self.active_device = active_device
         self.cold_device = cold_device
@@ -120,8 +120,8 @@ class DynamicQantizedLinear(Linear):
         self.bias_quantized = None
         self.bias_state = None
         self.block_size = 128
-        self.quant_type = 'nf4'
-        self.weight_start = self.weight.clone().detach()
+        #self.weight_start = self.weight.clone().detach()
+        self.cold_dtype = cold_dtype
 
     @classmethod
     def fromLinear(cls, in_module: torch.nn.Linear, active_device: torch.device = torch.device("cuda:0"), cold_device: torch.device = torch.device("cpu"),
@@ -131,19 +131,19 @@ class DynamicQantizedLinear(Linear):
                          compute_dtype=compute_dtype, output_device=output_device)
         new_module.weight = torch.nn.Parameter(in_module.weight.to(torch.float32).to(cold_device))
         new_module.bias = torch.nn.Parameter(in_module.bias.to(torch.float32).to(cold_device)) if new_module.bias is not None else None
-        new_module.weight_start = new_module.weight.clone().detach()
+        #new_module.weight_start = new_module.weight.clone().detach()
         return new_module
 
     def compress(self) -> None:
-        weight = self.weight.contiguous().to(torch.float16).cuda(self.active_device)
+        weight = self.weight.contiguous().to(torch.float16).to(self.active_device)
         self.weight_quantized, self.weight_state = bnb.functional.quantize_blockwise(weight, blocksize=self.block_size)
         if self.bias is not None:
-            bias = self.bias.contiguous().to(torch.float16).cuda(self.active_device)
+            bias = self.bias.contiguous().to(torch.float16).to(self.active_device)
             self.bias_quantized, self.bias_state = bnb.functional.quantize_blockwise(bias, blocksize=self.block_size)
 
         frozen = self.isFrozen()
-        self.weight = torch.nn.Parameter(self.weight.to(self.cold_device))
-        self.bias = torch.nn.Parameter(self.bias.to(self.cold_device)) if self.bias is not None else None
+        self.weight = torch.nn.Parameter(self.weight.to(self.cold_dtype).to(self.cold_device))
+        self.bias = torch.nn.Parameter(self.bias.to(self.cold_dtype).to(self.cold_device)) if self.bias is not None else None
         self.setFrozen(frozen, False)
 
     def decompress(self) -> None:
@@ -151,16 +151,16 @@ class DynamicQantizedLinear(Linear):
         self.weight_state = None
         self.bias_quantized = None
         self.bias_state = None
-        self.weight_start = self.weight.clone().detach().to(self.cold_device)
-        self.weight = torch.nn.Parameter(self.weight.to(self.active_device))
+        #self.weight_start = self.weight.clone().detach().to(self.cold_device)
+        self.weight = torch.nn.Parameter(self.weight.to(self.active_device).to(torch.float32))
         if self.bias_quantized:
-            self.bias = torch.nn.Parameter(self.bias.to(self.active_device))
+            self.bias = torch.nn.Parameter(self.bias.to(self.active_device).to(torch.float32))
 
     def getDistanceAndError(self) -> tuple[torch.Tensor, torch.Tensor]:
         original_weight = self.weight.contiguous().to(self.active_device).to(torch.float16)
         quantized_original_weight, quantized_original_state = bnb.functional.quantize_blockwise(original_weight, blocksize=self.block_size)
         dequantized_original_weight = bnb.functional.dequantize_blockwise(quantized_original_weight, quantized_original_state).to(original_weight.dtype)
-        distance = (self.weight_start - self.weight.to(self.cold_device)).to(torch.float32)
+        distance = torch.zeros((2)) #(self.weight_start - self.weight.to(self.cold_device)).to(torch.float32)
         error = (dequantized_original_weight - original_weight).to(torch.float32)
         return (distance, error)
 
